@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { ForecastTimeline, RunState, WorldObjectState } from "../core/Types";
-import { BALANCE, GAME_HEIGHT, GAME_WIDTH } from "../config/GameConfig";
+import { BALANCE } from "../config/GameConfig";
 import { EventBus } from "../core/EventBus";
 import { ForecastManager } from "../simulation/forecast/ForecastManager";
 import { EnvironmentRuleResolver } from "../simulation/environment/EnvironmentRuleResolver";
@@ -13,13 +13,15 @@ import { TimelineUI } from "../ui/TimelineUI";
 
 export class ExpeditionScene extends Phaser.Scene {
   private run!: RunState;
-  private events!: EventBus;
+  private eventBus!: EventBus;
   private forecast!: ForecastManager;
   private environment!: EnvironmentRuleResolver;
   private certainty!: CertaintySystem;
   private combo!: ComboSystem;
   private rewards!: RewardSystem;
-  private playerSprite!: Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
+  private playerSprite!: Phaser.GameObjects.Rectangle & {
+    body: Phaser.Physics.Arcade.Body;
+  };
   private playerController!: PlayerController;
   private objectGraphics = new Map<string, Phaser.GameObjects.GameObject>();
   private timelineUI!: TimelineUI;
@@ -76,9 +78,18 @@ export class ExpeditionScene extends Phaser.Scene {
       status: "ACTIVE"
     };
 
-    this.events = new EventBus();
-    this.forecast = new ForecastManager(this.run.forecast, this.events);
-    this.environment = new EnvironmentRuleResolver(this.run.worldObjects, this.events);
+    this.eventBus = new EventBus();
+
+    this.forecast = new ForecastManager(
+      this.run.forecast,
+      this.eventBus
+    );
+
+    this.environment = new EnvironmentRuleResolver(
+      this.run.worldObjects,
+      this.eventBus
+    );
+
     this.certainty = new CertaintySystem(this.run.certainty);
     this.combo = new ComboSystem(this.run.combo);
     this.rewards = new RewardSystem(this.run);
@@ -124,13 +135,18 @@ export class ExpeditionScene extends Phaser.Scene {
       color: "#13262b"
     }).setOrigin(1, 0).setDepth(50);
 
-    this.hintText = this.add.text(192, 203, "WASD / ARROWS: move   •   Q: swap future weather   •   reach the flag", {
-      fontFamily: "monospace",
-      fontSize: "6px",
-      color: "#163038",
-      backgroundColor: "#d9eadf",
-      padding: { x: 4, y: 3 }
-    }).setOrigin(0.5).setDepth(50);
+    this.hintText = this.add.text(
+      192,
+      203,
+      "WASD / ARROWS: move   •   Q: swap future weather   •   reach the flag",
+      {
+        fontFamily: "monospace",
+        fontSize: "6px",
+        color: "#163038",
+        backgroundColor: "#d9eadf",
+        padding: { x: 4, y: 3 }
+      }
+    ).setOrigin(0.5).setDepth(50);
 
     this.flashText = this.add.text(192, 111, "", {
       fontFamily: "monospace",
@@ -140,35 +156,49 @@ export class ExpeditionScene extends Phaser.Scene {
       strokeThickness: 3
     }).setOrigin(0.5).setDepth(100);
 
-    this.swapKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
-    this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
-    this.interactKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this.swapKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.Q
+    );
 
-    // Touch-friendly on-screen controls.
+    this.restartKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.R
+    );
+
+    this.interactKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.E
+    );
+
     this.createTouchControls();
 
-    // Explain the core chain in the level itself, without a wiki.
-    this.add.text(192, 127, "RAIN wets seed → WIND carries seed → SUN grows bridge", {
-      fontFamily: "monospace",
-      fontSize: "7px",
-      color: "#173238",
-      backgroundColor: "#d9eadf",
-      padding: { x: 3, y: 2 }
-    }).setOrigin(0.5).setDepth(50);
+    this.add.text(
+      192,
+      127,
+      "RAIN wets seed → WIND carries seed → SUN grows bridge",
+      {
+        fontFamily: "monospace",
+        fontSize: "7px",
+        color: "#173238",
+        backgroundColor: "#d9eadf",
+        padding: { x: 3, y: 2 }
+      }
+    ).setOrigin(0.5).setDepth(50);
   }
 
   update(_time: number, delta: number): void {
     const dt = delta / 1000;
+
     if (this.run.status !== "ACTIVE") return;
 
     this.run.elapsedTime += dt;
-    this.forecast.update(dt);
 
+    this.forecast.update(dt);
     const weather = this.forecast.getCurrentWeather();
+
     this.environment.update(weather, dt);
     this.playerController.update();
 
     this.combo.update(this.run.elapsedTime);
+
     this.updateWorldGraphics(weather);
     this.updateUI(weather);
 
@@ -177,44 +207,68 @@ export class ExpeditionScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-      this.scene.restart({ forecast: this.cloneForecast(this.run.forecast) });
+      this.scene.restart({
+        forecast: this.cloneForecast(this.run.forecast)
+      });
     }
 
     this.checkExtraction();
-    if (Phaser.Input.Keyboard.JustDown(this.interactKey) && this.nearExit) {
+
+    if (
+      Phaser.Input.Keyboard.JustDown(this.interactKey) &&
+      this.nearExit
+    ) {
       this.extract();
     }
 
-    if (this.forecast.isFinished() && !this.run.extraction.reached) {
+    if (
+      this.forecast.isFinished() &&
+      !this.run.extraction.reached
+    ) {
       this.run.status = "FAILED";
       this.flashText.setText("FORECAST ENDED — R TO REPLAN");
     }
   }
 
   private bindEvents(): void {
-    this.events.on(event => {
+    this.eventBus.on(event => {
       if (event.type === "BASIC_SUCCESS") {
         this.combo.success(this.run.elapsedTime);
+
         const reward = this.rewards.award(event.reward);
+
         this.flashText.setText(`+${reward} STORM GLASS`);
+
         this.tweens.add({
           targets: this.flashText,
           alpha: { from: 1, to: 0 },
           duration: 1200,
-          onComplete: () => this.flashText.setAlpha(1).setText("")
+          onComplete: () =>
+            this.flashText
+              .setAlpha(1)
+              .setText("")
         });
       }
 
       if (event.type === "CHAIN_SUCCESS") {
         this.combo.success(this.run.elapsedTime);
+
         const reward = this.rewards.award(event.reward);
-        this.flashText.setText(`CHAIN! ${event.chainId}  +${reward}`);
+
+        this.flashText.setText(
+          `CHAIN! ${event.chainId}  +${reward}`
+        );
+
         this.tweens.add({
           targets: this.flashText,
           scale: { from: 1, to: 1.15 },
           alpha: { from: 1, to: 0 },
           duration: 1600,
-          onComplete: () => this.flashText.setScale(1).setAlpha(1).setText("")
+          onComplete: () =>
+            this.flashText
+              .setScale(1)
+              .setAlpha(1)
+              .setText("")
         });
       }
 
@@ -222,7 +276,9 @@ export class ExpeditionScene extends Phaser.Scene {
         this.run.weatherHistory.push({
           weatherId: event.weather,
           startedAt: this.run.elapsedTime,
-          endedAt: this.run.elapsedTime + BALANCE.weatherDuration
+          endedAt:
+            this.run.elapsedTime +
+            BALANCE.weatherDuration
         });
       }
     });
@@ -236,8 +292,14 @@ export class ExpeditionScene extends Phaser.Scene {
       14,
       0x3c5d68
     );
+
     this.physics.add.existing(sprite);
-    this.playerSprite = sprite as Phaser.GameObjects.Rectangle & { body: Phaser.Physics.Arcade.Body };
+
+    this.playerSprite =
+      sprite as Phaser.GameObjects.Rectangle & {
+        body: Phaser.Physics.Arcade.Body;
+      };
+
     this.playerSprite.body.setCollideWorldBounds(true);
     this.playerSprite.setDepth(30);
 
@@ -248,114 +310,272 @@ export class ExpeditionScene extends Phaser.Scene {
     );
   }
 
-  private drawLevel(extraction: { x: number; y: number }): void {
-    this.add.rectangle(192, 108, 384, 216, 0x8fae9b);
-    this.add.rectangle(192, 178, 384, 76, 0x6f8d76);
+  private drawLevel(
+    extraction: { x: number; y: number }
+  ): void {
+    this.add.rectangle(
+      192,
+      108,
+      384,
+      216,
+      0x8fae9b
+    );
 
-    // Route boundaries / stepping stones.
-    this.add.rectangle(192, 155, 330, 5, 0x4c665a);
-    this.add.rectangle(192, 110, 300, 3, 0x668477);
+    this.add.rectangle(
+      192,
+      178,
+      384,
+      76,
+      0x6f8d76
+    );
 
-    this.add.rectangle(extraction.x, extraction.y, 20, 20, 0xd7c46e)
-      .setStrokeStyle(2, 0x5a4a2c);
+    this.add.rectangle(
+      192,
+      155,
+      330,
+      5,
+      0x4c665a
+    );
 
-    this.add.text(extraction.x, extraction.y, "EXIT", {
-      fontFamily: "monospace",
-      fontSize: "6px",
-      color: "#2d342d"
-    }).setOrigin(0.5);
+    this.add.rectangle(
+      192,
+      110,
+      300,
+      3,
+      0x668477
+    );
+
+    this.add.rectangle(
+      extraction.x,
+      extraction.y,
+      20,
+      20,
+      0xd7c46e
+    ).setStrokeStyle(2, 0x5a4a2c);
+
+    this.add.text(
+      extraction.x,
+      extraction.y,
+      "EXIT",
+      {
+        fontFamily: "monospace",
+        fontSize: "6px",
+        color: "#2d342d"
+      }
+    ).setOrigin(0.5);
 
     const water = this.getObject("water_01")!;
+
     this.objectGraphics.set(
       water.id,
-      this.add.rectangle(water.position.x, water.position.y, 48, 28, 0x497f89)
-        .setStrokeStyle(2, 0x31545c)
+      this.add.rectangle(
+        water.position.x,
+        water.position.y,
+        48,
+        28,
+        0x497f89
+      ).setStrokeStyle(2, 0x31545c)
     );
 
     const seed = this.getObject("seed_01")!;
+
     this.objectGraphics.set(
       seed.id,
-      this.add.circle(seed.position.x, seed.position.y, 5, 0x765b3e)
+      this.add.circle(
+        seed.position.x,
+        seed.position.y,
+        5,
+        0x765b3e
+      )
     );
 
     const soil = this.getObject("soil_01")!;
+
     this.objectGraphics.set(
       soil.id,
-      this.add.rectangle(soil.position.x, soil.position.y, 24, 12, 0x765b3e)
+      this.add.rectangle(
+        soil.position.x,
+        soil.position.y,
+        24,
+        12,
+        0x765b3e
+      )
     );
 
     const plant = this.getObject("plant_01")!;
+
     this.objectGraphics.set(
       plant.id,
-      this.add.rectangle(plant.position.x, plant.position.y, 5, 15, 0x4e7a4d)
+      this.add.rectangle(
+        plant.position.x,
+        plant.position.y,
+        5,
+        15,
+        0x4e7a4d
+      )
     );
 
     const wind = this.getObject("wind_01")!;
+
     this.objectGraphics.set(
       wind.id,
-      this.add.text(wind.position.x, wind.position.y, "≋", {
-        fontFamily: "monospace",
-        fontSize: "18px",
-        color: "#eef4e7"
-      }).setOrigin(0.5)
+      this.add.text(
+        wind.position.x,
+        wind.position.y,
+        "≋",
+        {
+          fontFamily: "monospace",
+          fontSize: "18px",
+          color: "#eef4e7"
+        }
+      ).setOrigin(0.5)
     );
 
     const gate = this.getObject("gate_01")!;
+
     this.objectGraphics.set(
       gate.id,
-      this.add.rectangle(gate.position.x, gate.position.y, 14, 30, 0x493d3b)
-        .setStrokeStyle(2, 0x302827)
+      this.add.rectangle(
+        gate.position.x,
+        gate.position.y,
+        14,
+        30,
+        0x493d3b
+      ).setStrokeStyle(2, 0x302827)
     );
   }
 
-  private updateWorldGraphics(weather: string | null): void {
+  private updateWorldGraphics(
+    weather: string | null
+  ): void {
     const water = this.getObject("water_01")!;
-    const waterGraphic = this.objectGraphics.get("water_01") as Phaser.GameObjects.Rectangle;
+
+    const waterGraphic =
+      this.objectGraphics.get("water_01") as
+        | Phaser.GameObjects.Rectangle
+        | undefined;
+
     if (waterGraphic && water.water) {
-      const alpha = 0.2 + water.water.volume * 0.75;
+      const alpha =
+        0.2 + water.water.volume * 0.75;
+
       waterGraphic.setAlpha(alpha);
     }
 
     const seed = this.getObject("seed_01")!;
-    const seedGraphic = this.objectGraphics.get("seed_01") as Phaser.GameObjects.Arc;
-    if (seedGraphic) seedGraphic.setPosition(seed.position.x, seed.position.y);
+
+    const seedGraphic =
+      this.objectGraphics.get("seed_01") as
+        | Phaser.GameObjects.Arc
+        | undefined;
+
+    if (seedGraphic) {
+      seedGraphic.setPosition(
+        seed.position.x,
+        seed.position.y
+      );
+    }
 
     const plant = this.getObject("plant_01")!;
-    const plantGraphic = this.objectGraphics.get("plant_01") as Phaser.GameObjects.Rectangle;
+
+    const plantGraphic =
+      this.objectGraphics.get("plant_01") as
+        | Phaser.GameObjects.Rectangle
+        | undefined;
+
     if (plantGraphic && plant.plant) {
-      plantGraphic.setPosition(plant.position.x, plant.position.y);
-      plantGraphic.setScale(1, Math.max(0.05, plant.plant.growthProgress));
-      plantGraphic.setAlpha(plant.plant.growthProgress > 0 ? 1 : 0.35);
+      plantGraphic.setPosition(
+        plant.position.x,
+        plant.position.y
+      );
+
+      plantGraphic.setScale(
+        1,
+        Math.max(
+          0.05,
+          plant.plant.growthProgress
+        )
+      );
+
+      plantGraphic.setAlpha(
+        plant.plant.growthProgress > 0
+          ? 1
+          : 0.35
+      );
     }
 
     const gate = this.getObject("gate_01")!;
-    const gateGraphic = this.objectGraphics.get("gate_01") as Phaser.GameObjects.Rectangle;
+
+    const gateGraphic =
+      this.objectGraphics.get("gate_01") as
+        | Phaser.GameObjects.Rectangle
+        | undefined;
+
     if (gateGraphic && gate.gate) {
-      gateGraphic.setAlpha(gate.gate.opened ? 0.25 : 1);
+      gateGraphic.setAlpha(
+        gate.gate.opened ? 0.25 : 1
+      );
     }
 
-    const windGraphic = this.objectGraphics.get("wind_01");
+    const windGraphic =
+      this.objectGraphics.get("wind_01");
+
     if (windGraphic) {
-      (windGraphic as Phaser.GameObjects.Text).setAlpha(weather === "WIND" ? 1 : 0.35);
+      (
+        windGraphic as Phaser.GameObjects.Text
+      ).setAlpha(
+        weather === "WIND" ? 1 : 0.35
+      );
     }
   }
 
-  private updateUI(weather: string | null): void {
+  private updateUI(
+    weather: string | null
+  ): void {
     this.timelineUI.update();
 
-    const icon = weather === "RAIN" ? "☔" : weather === "WIND" ? "≋" : weather === "SUN" ? "☀" : "—";
-    this.weatherText.setText(`NOW ${icon} ${weather ?? "DONE"}`);
+    const icon =
+      weather === "RAIN"
+        ? "☔"
+        : weather === "WIND"
+          ? "≋"
+          : weather === "SUN"
+            ? "☀"
+            : "—";
+
+    this.weatherText.setText(
+      `NOW ${icon} ${weather ?? "DONE"}`
+    );
 
     const remaining = Math.max(
       0,
-      this.run.forecast.slots.reduce((s, x) => s + x.duration, 0) - this.run.forecast.elapsed
+      this.run.forecast.slots.reduce(
+        (s, x) => s + x.duration,
+        0
+      ) - this.run.forecast.elapsed
     );
-    this.timerText.setText(`${remaining.toFixed(1)}s`);
 
-    this.rewardText.setText(`STORM GLASS ${this.run.stormGlass}`);
-    this.comboText.setText(`COMBO x${this.run.combo.multiplier}`);
+    this.timerText.setText(
+      `${remaining.toFixed(1)}s`
+    );
+
+    this.rewardText.setText(
+      `STORM GLASS ${this.run.stormGlass}`
+    );
+
+    this.comboText.setText(
+      `COMBO x${this.run.combo.multiplier}`
+    );
+
     this.certaintyText.setText(
-      `CERTAINTY ${"◆".repeat(this.run.certainty.charges)}${"◇".repeat(this.run.certainty.maxCharges - this.run.certainty.charges)}`
+      `CERTAINTY ${
+        "◆".repeat(this.run.certainty.charges)
+      }${
+        "◇".repeat(
+          this.run.certainty.maxCharges -
+          this.run.certainty.charges
+        )
+      }`
     );
   }
 
@@ -365,103 +585,229 @@ export class ExpeditionScene extends Phaser.Scene {
       return;
     }
 
-    const current = this.run.forecast.currentSlotIndex;
+    const current =
+      this.run.forecast.currentSlotIndex;
+
     const a = current + 1;
     const b = current + 2;
 
     if (b >= this.run.forecast.slots.length) {
-      this.flashText.setText("NO TWO FUTURE EVENTS TO SWAP");
+      this.flashText.setText(
+        "NO TWO FUTURE EVENTS TO SWAP"
+      );
       return;
     }
 
-    if (this.certainty.swap(this.forecast, a, b)) {
-      this.flashText.setText("CERTAINTY: FUTURE WEATHER SWAPPED");
+    if (
+      this.certainty.swap(
+        this.forecast,
+        a,
+        b
+      )
+    ) {
+      this.flashText.setText(
+        "CERTAINTY: FUTURE WEATHER SWAPPED"
+      );
+
       this.tweens.add({
         targets: this.flashText,
         alpha: { from: 1, to: 0 },
         duration: 1000,
-        onComplete: () => this.flashText.setAlpha(1).setText("")
+        onComplete: () =>
+          this.flashText
+            .setAlpha(1)
+            .setText("")
       });
     }
   }
 
   private checkExtraction(): void {
-    if (this.run.extraction.reached) return;
+    if (this.run.extraction.reached) {
+      return;
+    }
 
-    const dx = this.run.player.position.x - 350;
-    const dy = this.run.player.position.y - 70;
-    this.nearExit = Math.hypot(dx, dy) < 18;
+    const dx =
+      this.run.player.position.x - 350;
+
+    const dy =
+      this.run.player.position.y - 70;
+
+    this.nearExit =
+      Math.hypot(dx, dy) < 18;
 
     if (this.nearExit) {
-      const gate = this.getObject("gate_01")!;
+      const gate =
+        this.getObject("gate_01")!;
+
       if (!gate.gate?.opened) {
-        this.flashText.setText("THE GATE IS CLOSED — GROW THE PLANT");
+        this.flashText.setText(
+          "THE GATE IS CLOSED — GROW THE PLANT"
+        );
       } else {
-        this.flashText.setText("PRESS E TO EXTRACT");
+        this.flashText.setText(
+          "PRESS E TO EXTRACT"
+        );
       }
     }
   }
 
   private extract(): void {
-    if (this.run.extraction.reached) return;
+    if (this.run.extraction.reached) {
+      return;
+    }
+
     this.run.extraction.reached = true;
     this.run.extraction.banked = true;
     this.run.status = "EXTRACTED";
-    this.run.stormGlass += BALANCE.stormGlass.extraction;
 
-    this.scene.time.delayedCall(500, () => {
+    this.run.stormGlass +=
+      BALANCE.stormGlass.extraction;
+
+    this.time.delayedCall(500, () => {
       this.scene.start("ResultsScene", {
         stormGlass: this.run.stormGlass,
         combo: this.run.combo.multiplier,
         time: this.run.elapsedTime,
-        forecast: this.run.forecast.slots.map(s => s.weatherId)
+        forecast:
+          this.run.forecast.slots.map(
+            s => s.weatherId
+          )
       });
     });
   }
 
   private createTouchControls(): void {
-    const base = this.add.circle(42, 181, 26, 0x173238, 0.65)
-      .setStrokeStyle(1, 0xd9eadf, 0.6)
+    const base = this.add.circle(
+      42,
+      181,
+      26,
+      0x173238,
+      0.65
+    )
+      .setStrokeStyle(
+        1,
+        0xd9eadf,
+        0.6
+      )
       .setDepth(80);
+
     void base;
 
     const buttons = [
-      { label: "▲", x: 42, y: 166, dx: 0, dy: -1 },
-      { label: "▼", x: 42, y: 196, dx: 0, dy: 1 },
-      { label: "◀", x: 27, y: 181, dx: -1, dy: 0 },
-      { label: "▶", x: 57, y: 181, dx: 1, dy: 0 }
+      {
+        label: "▲",
+        x: 42,
+        y: 166,
+        dx: 0,
+        dy: -1
+      },
+      {
+        label: "▼",
+        x: 42,
+        y: 196,
+        dx: 0,
+        dy: 1
+      },
+      {
+        label: "◀",
+        x: 27,
+        y: 181,
+        dx: -1,
+        dy: 0
+      },
+      {
+        label: "▶",
+        x: 57,
+        y: 181,
+        dx: 1,
+        dy: 0
+      }
     ];
 
     for (const b of buttons) {
-      const t = this.add.text(b.x, b.y, b.label, {
-        fontFamily: "monospace",
-        fontSize: "10px",
-        color: "#f5f1dd"
-      }).setOrigin(0.5).setDepth(81).setInteractive();
-      t.on("pointerdown", () => this.playerController.setVirtualDirection(b.dx, b.dy));
-      t.on("pointerup", () => this.playerController.setVirtualDirection(0, 0));
-      t.on("pointerout", () => this.playerController.setVirtualDirection(0, 0));
+      const t = this.add.text(
+        b.x,
+        b.y,
+        b.label,
+        {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#f5f1dd"
+        }
+      )
+        .setOrigin(0.5)
+        .setDepth(81)
+        .setInteractive();
+
+      t.on("pointerdown", () => {
+        this.playerController.setVirtualDirection(
+          b.dx,
+          b.dy
+        );
+      });
+
+      t.on("pointerup", () => {
+        this.playerController.setVirtualDirection(
+          0,
+          0
+        );
+      });
+
+      t.on("pointerout", () => {
+        this.playerController.setVirtualDirection(
+          0,
+          0
+        );
+      });
     }
 
-    const interact = this.add.rectangle(337, 184, 60, 25, 0x173238, 0.75)
-      .setStrokeStyle(1, 0xd9eadf, 0.6)
+    const interact = this.add.rectangle(
+      337,
+      184,
+      60,
+      25,
+      0x173238,
+      0.75
+    )
+      .setStrokeStyle(
+        1,
+        0xd9eadf,
+        0.6
+      )
       .setDepth(80)
       .setInteractive();
-    this.add.text(337, 184, "INTERACT", {
-      fontFamily: "monospace",
-      fontSize: "7px",
-      color: "#f5f1dd"
-    }).setOrigin(0.5).setDepth(81);
+
+    this.add.text(
+      337,
+      184,
+      "INTERACT",
+      {
+        fontFamily: "monospace",
+        fontSize: "7px",
+        color: "#f5f1dd"
+      }
+    )
+      .setOrigin(0.5)
+      .setDepth(81);
+
     interact.on("pointerdown", () => {
-      if (this.nearExit) this.extract();
+      if (this.nearExit) {
+        this.extract();
+      }
     });
   }
 
-  private getObject(id: string): WorldObjectState | undefined {
-    return this.run.worldObjects.find(o => o.id === id);
+  private getObject(
+    id: string
+  ): WorldObjectState | undefined {
+    return this.run.worldObjects.find(
+      o => o.id === id
+    );
   }
 
-  private cloneForecast(forecast: ForecastTimeline): ForecastTimeline {
+  private cloneForecast(
+    forecast: ForecastTimeline
+  ): ForecastTimeline {
     return structuredClone({
       ...forecast,
       currentSlotIndex: 0,
